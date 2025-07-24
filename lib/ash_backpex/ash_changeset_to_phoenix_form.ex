@@ -1,4 +1,6 @@
 if Code.ensure_loaded?(Phoenix.HTML) do
+  require Logger
+
   defimpl Phoenix.HTML.FormData, for: Ash.Changeset do
     def to_form(changeset, opts) do
       %{data: data, action: action} = changeset
@@ -300,6 +302,40 @@ if Code.ensure_loaded?(Phoenix.HTML) do
     defp find_inputs_for_type!(changeset, field) do
       resource = changeset.resource
 
+      attribute = Enum.find(Ash.Resource.Info.attributes(resource), &(&1.name == field))
+
+      case attribute do
+        %{type: {:array, embed_type}} ->
+          if is_embed_type?(embed_type) do
+            {:many, nil, embed_type}
+          else
+            check_relationships(resource, field)
+          end
+
+        %{type: embed_type} ->
+          if is_embed_type?(embed_type) do
+            {:one, nil, embed_type}
+          else
+            check_relationships(resource, field)
+          end
+
+        _ ->
+          check_relationships(resource, field)
+      end
+    end
+
+    # 添加辅助函数来检测嵌入类型
+    defp is_embed_type?(type) do
+      # 检查是否有 __ash_attributes__ 函数（Ash 嵌入资源的标志）
+      # 或者检查是否有 __struct__ 函数（普通结构体）
+      # 或者检查模块名是否包含常见的嵌入模式
+      # function_exported?(type, :__ash_attributes__, 0) ||
+      Ash.Resource.Info.embedded?(type) ||
+        function_exported?(type, :__struct__, 0) ||
+        (is_atom(type) && String.contains?(to_string(type), ["Embed", "embed"]))
+    end
+
+    defp check_relationships(resource, field) do
       if function_exported?(resource, :__ash_relationships__, 0) do
         relationship = Enum.find(resource.__ash_relationships__(), &(&1.name == field))
 
@@ -307,7 +343,7 @@ if Code.ensure_loaded?(Phoenix.HTML) do
           nil ->
             raise ArgumentError,
                   "could not generate inputs for #{inspect(field)} from #{inspect(resource)}. " <>
-                    "Check the field exists and it is a relationship"
+                    "Check the field exists and it is a relationship or embed"
 
           %{cardinality: :one, destination: module} ->
             {:one, nil, module}
@@ -324,6 +360,23 @@ if Code.ensure_loaded?(Phoenix.HTML) do
 
     defp to_changeset(%Ash.Changeset{} = changeset, parent_action, _module, _cast, _index),
       do: apply_action(changeset, parent_action)
+
+    # 处理嵌入资源的 changeset
+    defp to_changeset(%{__struct__: struct_module} = data, parent_action, module, cast, index)
+         # 如果数据的结构体模块与目标模块不同，可能是嵌入资源
+         when struct_module == module do
+      cond do
+        # 如果目标模块是嵌入资源，创建新的 changeset
+        is_embed_type?(module) ->
+          changeset = Ash.Changeset.new(module) |> Ash.Changeset.change_attributes(Map.from_struct(data))
+          apply_action(changeset, parent_action)
+
+        # 否则按原有逻辑处理
+        true ->
+          changeset = Ash.Changeset.new(module) |> Ash.Changeset.change_attributes(data)
+          apply_action(changeset, parent_action)
+      end
+    end
 
     defp to_changeset(%{} = data, parent_action, _module, cast, _index) when is_function(cast, 2),
       do: apply_action(cast!(cast, data), parent_action)

@@ -44,6 +44,8 @@ defmodule AshBackpex.LiveResource.Dsl do
       :placeholder,
       :options,
       :display_field,
+      :type,
+      :child_fields,
       :live_resource
     ]
   end
@@ -101,6 +103,15 @@ defmodule AshBackpex.LiveResource.Dsl do
         placeholder: [
           doc: "Placeholder value or function that receives the assigns.",
           type: {:or, [:string, {:fun, 1}]}
+        ],
+        # INLINE CRUD
+        type: [
+          doc: "The type of the field. Can be `:string`",
+          type: :atom
+        ],
+        child_fields: [
+          doc: "The child fields of the field.",
+          type: {:list, :any}
         ],
         # RELATIONSHIP FIELDS
         display_field: [
@@ -229,6 +240,37 @@ defmodule AshBackpex.LiveResource.Dsl do
     entities: [@item_action]
   }
 
+  defmodule ResourceAction do
+    defstruct [:name, :module]
+  end
+
+  @resource_action %Spark.Dsl.Entity{
+    name: :resource_action,
+    args: [:name, :module],
+    target: AshBackpex.LiveResource.Dsl.ResourceAction,
+    describe: "Configures a resource action for the resource",
+    schema: [
+      {:name, [type: :atom, required: true, doc: "The name of the resource action"]},
+      {:module,
+       [
+         type: :module,
+         required: true,
+         doc: "The module to use for the resource action. You must create the module"
+       ]}
+    ]
+  }
+
+  @resource_actions %Spark.Dsl.Section{
+    name: :resource_actions,
+    schema: [
+      strip_default: [
+        type: {:list, :atom},
+        doc: "Default Backpex resource actions to remove from the live resource"
+      ]
+    ],
+    entities: [@resource_action]
+  }
+
   @backpex %Spark.Dsl.Section{
     name: :backpex,
     schema: [
@@ -293,7 +335,7 @@ defmodule AshBackpex.LiveResource.Dsl do
         doc: "Any panels to be displayed in the admin create/edit forms."
       ]
     ],
-    sections: [@fields, @filters, @item_actions]
+    sections: [@fields, @filters, @item_actions, @resource_actions]
   }
 
   use Spark.Dsl.Extension,
