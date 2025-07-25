@@ -12,6 +12,8 @@ defmodule AshBackpex.LiveResource.Transformers.GenerateBackpex do
 
         @panels Spark.Dsl.Extension.get_opt(__MODULE__, [:backpex], :singular_name) || []
 
+        @fluid? Spark.Dsl.Extension.get_opt(__MODULE__, [:backpex], :fluid?) || false
+
         @singular_name Spark.Dsl.Extension.get_opt(__MODULE__, [:backpex], :singular_name) ||
                          @resource |> Atom.to_string() |> String.split(".") |> List.last()
 
@@ -86,6 +88,8 @@ defmodule AshBackpex.LiveResource.Transformers.GenerateBackpex do
             :max -> Backpex.Fields.Number
             :min -> Backpex.Fields.Number
             :avg -> Backpex.Fields.Number
+            {:array, Ash.Type.Atom} -> Backpex.Fields.InlineCRUD
+            _ -> Backpex.Fields.Text
           end
         end
 
@@ -145,11 +149,28 @@ defmodule AshBackpex.LiveResource.Transformers.GenerateBackpex do
                         )
                       end)
 
+        @resource_actions Spark.Dsl.Extension.get_entities(__MODULE__, [:backpex, :resource_actions])
+                         |> Enum.reduce([], fn action, acc ->
+                           Keyword.put(
+                             acc,
+                             action.name,
+                             %{
+                               module: action.module
+                             }
+                           )
+                         end)
+
         @item_action_strip_defaults Spark.Dsl.Extension.get_opt(
                                       __MODULE__,
                                       [:backpex, :item_actions],
                                       :strip_default
                                     ) || []
+
+        @resource_action_strip_defaults Spark.Dsl.Extension.get_opt(
+                                         __MODULE__,
+                                         [:backpex, :resource_actions],
+                                         :strip_default
+                                       ) || []
 
         use Backpex.LiveResource,
           adapter: AshBackpex.Adapter,
@@ -189,6 +210,11 @@ defmodule AshBackpex.LiveResource.Transformers.GenerateBackpex do
           |> Enum.reduce(defaults, fn {k, v}, acc ->
             Keyword.put(acc, k, v)
           end)
+        end
+
+        @impl Backpex.LiveResource
+        def resource_actions do
+          @resource_actions
         end
 
         @impl Backpex.LiveResource
@@ -233,6 +259,15 @@ defmodule AshBackpex.LiveResource.Transformers.GenerateBackpex do
             :edit -> deny_if_no_user_present_for_action?.(@resource, assigns, :update, true)
             :delete -> deny_if_no_user_present_for_action?.(@resource, assigns, :destroy, true)
             :new -> deny_if_no_user_present_for_action?.(@resource, assigns, :create, true)
+          end
+        end
+
+        # 添加对 resource actions 的支持
+        def can?(assigns, action, item) do
+          # 对于其他 actions（如 resource actions），默认允许
+          case Map.get(assigns, :current_user) do
+            nil -> false
+            _user -> true
           end
         end
 

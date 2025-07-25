@@ -11,7 +11,7 @@ defmodule AshBackpex.LiveResource.Dsl do
         field :author, Backpex.Fields.BelongsTo
         field :comments, Backpex.Fields.HasMany, only: [:show]
       end
-      singular_label "Post"
+      singular_name "Post"
       plural_label "Posts"
     end
   end
@@ -322,17 +322,22 @@ defmodule AshBackpex.LiveResource.Dsl do
         """,
         type: {:fun, 3}
       ],
-      singular_label: [
+      singular_name: [
         type: :string,
         doc: "The singular label for the resource that will appear in the admin. E.g., \"Post\""
       ],
-      plural_label: [
+      plural_name: [
         type: :string,
         doc: "The plural label for the resource taht will appear i nthe admin. E.g., \"Posts\""
       ],
       panels: [
         type: {:list, :string},
         doc: "Any panels to be displayed in the admin create/edit forms."
+      ],
+      fluid?: [
+        type: :boolean,
+        doc: "Whether to use the fluid layout for the admin. Defaults to false.",
+        default: false
       ]
     ],
     sections: [@fields, @filters, @item_actions, @resource_actions]
