@@ -39,7 +39,8 @@ defmodule AshBackpex.MixProject do
       {:ash, "~> 3.0"},
       {:backpex, "~> 0.8"},
       {:spark, "~> 2.0"},
-      {:phoenix_html, "~> 3.0 or ~> 4.0"}
+      {:phoenix_html, "~> 3.0 or ~> 4.0"},
+      {:ash_phoenix, "~> 2.0"},
     ]
   end
 
