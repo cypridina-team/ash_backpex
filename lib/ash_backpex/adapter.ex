@@ -300,14 +300,25 @@ defmodule AshBackpex.Adapter do
   """
   @impl Backpex.Adapter
   def change(item, attrs, _fields, assigns, _live_resource, _opts) do
-    action = assigns.form.source.action
+    source = assigns.form.source
+    action = source.action
 
-    case assigns.form.source.action_type do
-      :create ->
-        Ash.Changeset.for_create(item.__struct__, action, attrs)
+    cond do
+      is_struct(source, Ecto.Changeset) ->
+        # 处理 Ecto.Changeset
+        case source.action do
+          nil -> source  # 返回原始 changeset
+          _ -> Ecto.Changeset.change(source, attrs)
+        end
 
-      :update ->
-        Ash.Changeset.for_update(item, action, attrs)
+      true ->
+        # 其他情况的默认处理
+        case assigns.form.type do
+          :create ->
+            Ash.Changeset.for_create(item.__struct__, action, attrs)
+          :update ->
+            Ash.Changeset.for_update(item, action, attrs)
+        end
     end
   end
 end
