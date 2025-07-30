@@ -46,6 +46,7 @@ defmodule AshBackpex.LiveResource.Dsl do
       :display_field,
       :type,
       :child_fields,
+      :pivot_fields,
       :live_resource
     ]
   end
@@ -110,6 +111,10 @@ defmodule AshBackpex.LiveResource.Dsl do
           type: :atom
         ],
         child_fields: [
+          doc: "The child fields of the field.",
+          type: {:list, :any}
+        ],
+        pivot_fields: [
           doc: "The child fields of the field.",
           type: {:list, :any}
         ],

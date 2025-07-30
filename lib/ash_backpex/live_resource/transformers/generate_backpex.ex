@@ -112,6 +112,7 @@ defmodule AshBackpex.LiveResource.Transformers.GenerateBackpex do
                       live_resource: field.live_resource,
                       type: field.type,
                       child_fields: field.child_fields,
+                      pivot_fields: field.pivot_fields,
                       link_assocs:
                         case {module, Map.get(field, :link_assocs)} do
                           {Backpex.Fields.HasMany, nil} -> true
