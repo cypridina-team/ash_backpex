@@ -229,7 +229,7 @@ defmodule AshBackpex.Adapter do
         offset: (page_num - 1) * page_size
       )
 
-    with {:ok, results} = query |> dbg |> Ash.read(load: load, actor: assigns.current_user) do
+    with {:ok, results} = query |> Ash.read(load: load, actor: assigns.current_user) do
       {:ok, results.results}
     end
   end
