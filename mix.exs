@@ -37,7 +37,8 @@ defmodule AshBackpex.MixProject do
     [
       {:ex_doc, ">= 0.0.0", only: :dev, runtime: false},
       {:ash, "~> 3.0"},
-      {:backpex, "~> 0.8"},
+      # {:backpex, "~> 0.8"},
+      {:backpex, github: "cypridina-team/backpex"},
       {:spark, "~> 2.0"},
       {:phoenix_html, "~> 3.0 or ~> 4.0"},
       {:ash_phoenix, "~> 2.0"},
