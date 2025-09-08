@@ -265,6 +265,13 @@ defmodule AshBackpex.Adapter do
 
       %{type: :update} ->
         Ash.Changeset.for_update(item, action, attrs)
+
+      %Ecto.Changeset{} ->
+        # 处理 Ecto.Changeset
+        case source.action do
+          nil -> source  # 返回原始 changeset
+          _ -> Ecto.Changeset.change(source, attrs)
+        end
     end
   end
 
