@@ -299,9 +299,9 @@ defmodule AshBackpex.LiveResource.Dsl do
         doc: "The Ash resource that the Backpex Live resource should be connect to."
       ],
       layout: [
-        type: {:tuple, [:module, :atom]},
+        type: {:or, [{:tuple, [:module, :atom]}, {:fun, 1}]},
         required: true,
-        doc: "The liveview layout, e.g.: {MyAppWeb.Layouts, :admin}"
+        doc: "The layout component to render (Phoenix >= 1.8). Accepts {MyAppWeb.Layouts, :admin} or a function like &MyAppWeb.admin/1"
       ],
       load: [
         type: {:list, :any},

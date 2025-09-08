@@ -128,7 +128,7 @@ defmodule AshBackpex.Adapter do
   Returns `nil` if no result was found.
   """
   @impl Backpex.Adapter
-  def get(primary_value, assigns, live_resource) do
+  def get(primary_value, fields, assigns, live_resource) do
     config = live_resource.config(:adapter_config)
     primary_key = live_resource.config(:primary_key)
     load_fn = Keyword.get(config, :load)
@@ -148,8 +148,8 @@ defmodule AshBackpex.Adapter do
   Returns a list of items by given criteria.
   """
   @impl Backpex.Adapter
-  @spec list(keyword(), map(), module()) :: {:ok, list(map())} | {:error, term()}
-  def list(criteria, assigns, live_resource) do
+  @spec list(keyword(), list(), map(), module()) :: {:ok, list(map())} | {:error, term()}
+  def list(criteria, fields, assigns, live_resource) do
     config = live_resource.config(:adapter_config)
     load_fn = Keyword.get(config, :load)
 
@@ -176,7 +176,7 @@ defmodule AshBackpex.Adapter do
   Returns the number of items matching the given criteria.
   """
   @impl Backpex.Adapter
-  def count(criteria, assigns, live_resource) do
+  def count(criteria, fields, assigns, live_resource) do
     config = live_resource.config(:adapter_config)
 
     config[:resource]
