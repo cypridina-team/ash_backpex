@@ -1,7 +1,7 @@
 defmodule AshBackpex.MixProject do
   use Mix.Project
 
-  @version "0.0.3"
+  @version "0.0.7"
   @source_url "https://github.com/enoonan/ash_backpex"
 
   def project do
@@ -11,13 +11,18 @@ defmodule AshBackpex.MixProject do
       version: @version,
       elixir: "~> 1.18",
       start_permanent: Mix.env() == :prod,
+      elixirc_paths: elixirc_paths(Mix.env()),
       deps: deps(),
       package: package(),
       description: description(),
       source_url: @source_url,
-      docs: &docs/0
+      docs: &docs/0,
+      aliases: aliases()
     ]
   end
+
+  defp elixirc_paths(:test), do: ["lib", "test/support"]
+  defp elixirc_paths(_), do: ["lib"]
 
   defp docs do
     [
@@ -35,13 +40,21 @@ defmodule AshBackpex.MixProject do
 
   defp deps do
     [
-      {:ex_doc, ">= 0.0.0", only: :dev, runtime: false},
       {:ash, "~> 3.0"},
-      # {:backpex, "~> 0.8"},
-      {:backpex, github: "cypridina-team/backpex"},
+      {:ash_phoenix, "~> 2.3.14"},
+      {:backpex, "~> 0.14.0"},
       {:spark, "~> 2.0"},
       {:phoenix_html, "~> 3.0 or ~> 4.0"},
-      {:ash_phoenix, "~> 2.0"},
+
+      # Dev/Test dependencies
+      {:faker, "~> 0.19.0-alpha.1", only: :test},
+      {:simple_sat, "~> 0.1.3", only: [:dev, :test]},
+      {:ash_sqlite, "~> 0.1", only: :test},
+      {:ex_doc, ">= 0.0.0", only: :dev, runtime: false},
+      {:sobelow, "~> 0.13", only: [:dev, :test], runtime: false},
+      {:ex_check, "~> 0.14", only: [:dev, :test]},
+      {:credo, ">= 0.0.0", only: [:dev, :test], runtime: false},
+      {:dialyxir, ">= 0.0.0", only: [:dev, :test], runtime: false}
     ]
   end
 
@@ -64,5 +77,12 @@ defmodule AshBackpex.MixProject do
     Integration library between Ash Framework and Backpex admin interface (early development).
     Provides a DSL for creating admin interfaces for Ash resources.
     """
+  end
+
+  defp aliases do
+    [
+      credo: "credo --strict",
+      ci: ["credo --strict", "sobelow"]
+    ]
   end
 end

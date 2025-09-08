@@ -1,16 +1,23 @@
 defmodule AshBackpex.LiveResource.Transformers.GenerateBackpex do
-  use Spark.Dsl.Transformer
+  @moduledoc """
+    Generates a Backpex.LiveResource based on the the `backpex` DSL configuration provided in files that `use AshBackpex.LiveResource`.
+  """
 
+  use Spark.Dsl.Transformer
+  # credo:disable-for-this-file Credo.Check.Refactor.CyclomaticComplexity
   def transform(dsl_state) do
     backpex =
       quote do
         @resource Spark.Dsl.Extension.get_opt(__MODULE__, [:backpex], :resource)
+
+        @domain Ash.Resource.Info.domain(@resource)
+
         @data_layer_info_module ((@resource |> Ash.Resource.Info.data_layer() |> Atom.to_string()) <>
                                    ".Info")
                                 |> String.to_existing_atom()
         @repo @resource |> @data_layer_info_module.repo()
 
-        @panels Spark.Dsl.Extension.get_opt(__MODULE__, [:backpex], :singular_name) || []
+        @panels Spark.Dsl.Extension.get_opt(__MODULE__, [:backpex], :panels) || []
 
         @fluid? Spark.Dsl.Extension.get_opt(__MODULE__, [:backpex], :fluid?) || false
 
@@ -44,28 +51,93 @@ defmodule AshBackpex.LiveResource.Transformers.GenerateBackpex do
           atom
           |> Atom.to_string()
           |> String.split("_")
-          |> Enum.map(&String.capitalize/1)
-          |> Enum.join(" ")
+          |> Enum.map_join(" ", &String.capitalize/1)
+        end
+
+        get_one_of_constraint = fn attribute_name ->
+          case Ash.Resource.Info.attribute(@resource, attribute_name) do
+            %{constraints: constraints} ->
+              case Keyword.get(constraints, :items) do
+                items when is_list(items) -> Keyword.get(items, :one_of, nil)
+                _ -> Keyword.get(constraints, :one_of, nil)
+              end
+
+            _ ->
+              nil
+          end
+        end
+
+        has_one_of_constraint = fn attribute_name ->
+          get_one_of_constraint.(attribute_name) |> is_list
+        end
+
+        select_or = fn attribute_name, default ->
+          if attribute_name |> has_one_of_constraint.() do
+            Backpex.Fields.Select
+          else
+            default
+          end
+        end
+
+        derive_type = fn attribute_name ->
+          cond do
+            !is_nil(Ash.Resource.Info.attribute(@resource, attribute_name)) ->
+              Ash.Resource.Info.attribute(@resource, attribute_name).type
+
+            !is_nil(Ash.Resource.Info.relationship(@resource, attribute_name)) ->
+              Ash.Resource.Info.relationship(@resource, attribute_name).type
+
+            !is_nil(Ash.Resource.Info.calculation(@resource, attribute_name)) ->
+              Ash.Resource.Info.calculation(@resource, attribute_name).type
+
+            !is_nil(Ash.Resource.Info.aggregate(@resource, attribute_name)) ->
+              Ash.Resource.Info.aggregate(@resource, attribute_name).kind
+
+            true ->
+              att = inspect(attribute_name)
+
+              module_shortname =
+                __MODULE__ |> Atom.to_string() |> String.split(".") |> List.last()
+
+              raise """
+
+              Unable to derive the `Backpex.Field` module for the #{att} field in #{module_shortname}.
+
+              To debug:
+
+                * Ensure #{att} is spelled correctly, and is a valid attribute, relation,
+                  calculation, aggregate or other loadable entity on the #{module_shortname} resource.
+
+                * If a default field module still cannot be derived, specify it manually by using the `module` macro. E.g.:
+
+                  fields do
+                    field #{att} do
+                      module Backpex.Fields.Text
+                    end
+                  end
+              """
+          end
+        end
+
+        multiselect_or = fn attribute_name, default ->
+          case derive_type.(attribute_name) do
+            {:array, Ash.Type.Atom} ->
+              if attribute_name |> has_one_of_constraint.() do
+                Backpex.Fields.MultiSelect
+              else
+                default
+              end
+
+            {:array, _} ->
+              Backpex.Fields.MultiSelect
+
+            _ ->
+              default
+          end
         end
 
         try_derive_module = fn attribute_name ->
-          type =
-            cond do
-              !is_nil(Ash.Resource.Info.attribute(@resource, attribute_name)) ->
-                Ash.Resource.Info.attribute(@resource, attribute_name).type
-
-              !is_nil(Ash.Resource.Info.relationship(@resource, attribute_name)) ->
-                Ash.Resource.Info.relationship(@resource, attribute_name).type
-
-              !is_nil(Ash.Resource.Info.calculation(@resource, attribute_name)) ->
-                Ash.Resource.Info.calculation(@resource, attribute_name).type
-
-              !is_nil(Ash.Resource.Info.aggregate(@resource, attribute_name)) ->
-                Ash.Resource.Info.aggregate(@resource, attribute_name).kind
-
-              true ->
-                raise "Unable to derive the field type for #{inspect(attribute_name)} field in #{__MODULE__}. Please specify a field type."
-            end
+          type = derive_type.(attribute_name)
 
           case type do
             Ash.Type.Boolean ->
@@ -142,8 +214,6 @@ defmodule AshBackpex.LiveResource.Transformers.GenerateBackpex do
 
             {:array, Ash.Type.Float} ->
               attribute_name |> multiselect_or.(Backpex.Fields.Number)
-
-            _ -> Backpex.Fields.Text
           end
         end
 
@@ -186,14 +256,10 @@ defmodule AshBackpex.LiveResource.Transformers.GenerateBackpex do
                       only: field.only,
                       except: field.except,
                       default: field.default,
-                      options: field.options,
+                      options: field.options || field.attribute |> maybe_derive_options.(module),
                       display_field: field.display_field,
                       live_resource: field.live_resource,
-                      type: field.type,
-                      child_fields: field.child_fields,
-                      pivot_fields: field.pivot_fields,
-                      searchable: field.searchable,
-                      orderable: field.orderable,
+                      panel: field.panel,
                       link_assocs:
                         case {module, Map.get(field, :link_assocs)} do
                           {Backpex.Fields.HasMany, nil} -> true
@@ -266,34 +332,51 @@ defmodule AshBackpex.LiveResource.Transformers.GenerateBackpex do
                                 ) || []
 
         use Backpex.LiveResource,
-          adapter: AshBackpex.Adapter,
-          layout: Spark.Dsl.Extension.get_opt(__MODULE__, [:backpex], :layout),
-          adapter_config: [
-            resource: @resource,
-            schema: @resource,
-            repo: @repo,
-            create_action: @create_action,
-            read_action: @read_action,
-            update_action: @update_action,
-            destroy_action: @destroy_action,
-            create_changeset:
-              Spark.Dsl.Extension.get_opt(__MODULE__, [:backpex], :create_changeset) ||
-                (&AshBackpex.Adapter.create_changeset/3),
-            update_changeset:
-              Spark.Dsl.Extension.get_opt(__MODULE__, [:backpex], :update_changeset) ||
-                (&AshBackpex.Adapter.update_changeset/3),
-            load:
-              case Spark.Dsl.Extension.get_opt(__MODULE__, [:backpex], :load) do
-                nil -> &AshBackpex.Adapter.load/3
-                some_loads -> &__MODULE__.load/3
-              end
-          ]
+            [
+              adapter: AshBackpex.Adapter,
+              layout: Spark.Dsl.Extension.get_opt(__MODULE__, [:backpex], :layout),
+              adapter_config:
+                [
+                  resource: @resource,
+                  schema: @resource,
+                  repo: @repo,
+                  create_action: @create_action,
+                  read_action: @read_action,
+                  update_action: @update_action,
+                  destroy_action: @destroy_action,
+                  create_changeset:
+                    Spark.Dsl.Extension.get_opt(__MODULE__, [:backpex], :create_changeset) ||
+                      (&AshBackpex.Adapter.create_changeset/3),
+                  update_changeset:
+                    Spark.Dsl.Extension.get_opt(__MODULE__, [:backpex], :update_changeset) ||
+                      (&AshBackpex.Adapter.update_changeset/3),
+                  load:
+                    case Spark.Dsl.Extension.get_opt(__MODULE__, [:backpex], :load) do
+                      nil -> &AshBackpex.Adapter.load/3
+                      some_loads -> &__MODULE__.load/3
+                    end
+                ]
+                |> Keyword.reject(&(&1 |> elem(1) |> is_nil)),
+              pubsub: Spark.Dsl.Extension.get_opt(__MODULE__, [:backpex], :pubsub),
+              per_page_options:
+                Spark.Dsl.Extension.get_opt(__MODULE__, [:backpex], :per_page_options),
+              per_page_default:
+                Spark.Dsl.Extension.get_opt(__MODULE__, [:backpex], :per_page_default),
+              init_order: Spark.Dsl.Extension.get_opt(__MODULE__, [:backpex], :init_order),
+              fluid?: Spark.Dsl.Extension.get_opt(__MODULE__, [:backpex], :fluid?),
+              full_text_search:
+                Spark.Dsl.Extension.get_opt(__MODULE__, [:backpex], :full_text_search),
+              save_and_continue_button?:
+                Spark.Dsl.Extension.get_opt(__MODULE__, [:backpex], :save_and_continue_button?),
+              on_mount: Spark.Dsl.Extension.get_opt(__MODULE__, [:backpex], :on_mount)
+            ]
+            |> Keyword.reject(&(&1 |> elem(1) |> is_nil))
 
         @impl Backpex.LiveResource
-        def fields(), do: @fields
+        def fields, do: @fields
 
         @impl Backpex.LiveResource
-        def filters(), do: @filters
+        def filters, do: @filters
 
         @impl Backpex.LiveResource
         def item_actions(defaults) do
@@ -322,45 +405,55 @@ defmodule AshBackpex.LiveResource.Transformers.GenerateBackpex do
         def load(_, _, _), do: Spark.Dsl.Extension.get_opt(__MODULE__, [:backpex], :load)
 
         @impl Backpex.LiveResource
-        def can?(assigns, action, item) when action in [:index, :show, :edit, :delete, :new] do
-          deny_if_no_user_present_for_action? = fn resource, assigns, action_type, deny ->
-            action =
-              case action_type do
-                :create -> @create_action
-                :update -> @update_action
-                :read -> @read_action
-                :destroy -> @destroy_action
-              end
+        def can?(assigns, action, item \\ %{})
 
-            case Map.get(assigns, :current_user) do
-              nil ->
-                !deny
-
-              curr_user ->
-                # assigns
-                if (Ash.Resource.Info.action(@resource, action)) do
-                  Ash.can?({@resource, action}, curr_user)
-                else
-                  false
-                end
-            end
-          end
-
-          case action do
-            :index -> deny_if_no_user_present_for_action?.(@resource, assigns, :read, false)
-            :show -> deny_if_no_user_present_for_action?.(@resource, assigns, :read, false)
-            :edit -> deny_if_no_user_present_for_action?.(@resource, assigns, :update, true)
-            :delete -> deny_if_no_user_present_for_action?.(@resource, assigns, :destroy, true)
-            :new -> deny_if_no_user_present_for_action?.(@resource, assigns, :create, true)
-          end
+        def can?(assigns, :new, _item) do
+          Ash.can?({@resource, @create_action}, Map.get(assigns, :current_user))
         end
 
-        # 添加对 resource actions 的支持
-        def can?(assigns, action, item) do
-          # 对于其他 actions（如 resource actions），默认允许
-          case Map.get(assigns, :current_user) do
-            nil -> false
-            _user -> true
+        def can?(assigns, :index, _item) do
+          Ash.can?({@resource, @read_action}, Map.get(assigns, :current_user))
+        end
+
+        def can?(assigns, action, item) when action in [:show, :edit, :delete] do
+          action =
+            case action do
+              :show -> @read_action
+              :edit -> @update_action
+              :delete -> @destroy_action
+            end
+
+          Ash.can?({item, action}, Map.get(assigns, :current_user))
+        end
+
+        def maybe_default_options(assigns) do
+          case assigns do
+            %{field: {attribute_name, _field_cfg}} ->
+              options =
+                case Ash.Resource.Info.attribute(@resource, attribute_name) do
+                  %{constraints: constraints} ->
+                    case Keyword.get(constraints, :items) do
+                      items when is_list(items) -> Keyword.get(items, :one_of, nil)
+                      _ -> Keyword.get(constraints, :one_of, nil)
+                    end
+
+                  _ ->
+                    []
+                end
+
+              options
+              |> Enum.map(fn atom_opt ->
+                {
+                  atom_opt
+                  |> Atom.to_string()
+                  |> String.split("_")
+                  |> Enum.map_join(" ", &String.capitalize/1),
+                  atom_opt
+                }
+              end)
+
+            _ ->
+              []
           end
         end
 

@@ -12,12 +12,15 @@ defmodule AshBackpex.LiveResource.Dsl do
         field :comments, Backpex.Fields.HasMany, only: [:show]
       end
       singular_name "Post"
-      plural_label "Posts"
+      plural_name "Posts"
     end
   end
   """
 
   defmodule Field do
+    @moduledoc """
+    Configuration options for `Backpex.Field.{}`
+    """
     defstruct [
       :attribute,
       :default,
@@ -99,6 +102,11 @@ defmodule AshBackpex.LiveResource.Dsl do
           doc:
             "Sets the field to readonly. Also see the [panels](/guides/fields/readonly.md) guide.",
           type: {:or, [:boolean, {:fun, 1}]}
+        ],
+        panel: [
+          doc:
+            "The panel key this field belongs to. Must match a key defined in the panels configuration.",
+          type: :atom
         ],
         # TEXT FIELDS
         placeholder: [
@@ -185,6 +193,9 @@ defmodule AshBackpex.LiveResource.Dsl do
   }
 
   defmodule Filter do
+    @moduledoc """
+    Configuration options for `Backpex.Filters.{}`
+    """
     defstruct [:attribute, :module, :label]
   end
 
@@ -215,6 +226,9 @@ defmodule AshBackpex.LiveResource.Dsl do
   }
 
   defmodule ItemAction do
+    @moduledoc """
+    Configuration options for `Backpex.ItemAction`
+    """
     defstruct [:name, :module]
   end
 
@@ -281,10 +295,12 @@ defmodule AshBackpex.LiveResource.Dsl do
     schema: [
       resource: [
         type: :atom,
+        required: true,
         doc: "The Ash resource that the Backpex Live resource should be connect to."
       ],
       layout: [
         type: {:tuple, [:module, :atom]},
+        required: true,
         doc: "The liveview layout, e.g.: {MyAppWeb.Layouts, :admin}"
       ],
       load: [
@@ -329,23 +345,93 @@ defmodule AshBackpex.LiveResource.Dsl do
       ],
       singular_name: [
         type: :string,
-        doc: "The singular label for the resource that will appear in the admin. E.g., \"Post\""
+        doc: "The singular name for the resource that will appear in the admin. E.g., \"Post\""
       ],
       plural_name: [
         type: :string,
-        doc: "The plural label for the resource taht will appear i nthe admin. E.g., \"Posts\""
+        doc: "The plural name for the resource taht will appear i nthe admin. E.g., \"Posts\""
       ],
       panels: [
-        type: {:list, :string},
-        doc: "Any panels to be displayed in the admin create/edit forms."
+        type: :keyword_list,
+        doc:
+          "Panels to be displayed in the admin create/edit forms. Format: [panel_key: \"Panel Title\"]"
+      ],
+      pubsub: [
+        doc: "PubSub configuration.",
+        type: :keyword_list,
+        required: false,
+        keys: [
+          server: [
+            doc: "PubSub server of the project.",
+            required: false,
+            type: :atom
+          ],
+          topic: [
+            doc: """
+            The topic for PubSub.
+
+            By default a stringified version of the live resource module name is used.
+            """,
+            required: false,
+            type: :string
+          ]
+        ]
+      ],
+      per_page_options: [
+        doc: "The page size numbers you can choose from.",
+        type: {:list, :integer},
+        default: [15, 50, 100]
+      ],
+      per_page_default: [
+        doc: "The default page size number.",
+        type: :integer,
+        default: 15
+      ],
+      init_order: [
+        doc: "Order that will be used when no other order options are given.",
+        default: %{by: :id, direction: :asc},
+        type: {
+          :or,
+          [
+            {:fun, 1},
+            map: [
+              by: [
+                doc: "The column used for ordering.",
+                type: :atom
+              ],
+              direction: [
+                doc: "The order direction",
+                type: :atom
+              ]
+            ]
+          ]
+        }
       ],
       fluid?: [
+        doc: "If the layout fills out the entire width.",
         type: :boolean,
-        doc: "Whether to use the fluid layout for the admin. Defaults to false.",
         default: false
+      ],
+      full_text_search: [
+        doc: "The name of the generated column used for full text search.",
+        type: :atom,
+        default: nil
+      ],
+      save_and_continue_button?: [
+        doc: "If the \"Save & Continue editing\" button is shown on form views.",
+        type: :boolean,
+        default: false
+      ],
+      on_mount: [
+        doc: """
+        An optional list of hooks to attach to the mount lifecycle. Passing a single value is also accepted.
+        See https://hexdocs.pm/phoenix_live_view/Phoenix.LiveView.html#on_mount/1
+        """,
+        type: {:or, [:mod_arg, :atom, {:list, {:or, [:mod_arg, :atom]}}]},
+        required: false
       ]
     ],
-    sections: [@fields, @filters, @item_actions, @resource_actions]
+    sections: [@fields, @filters, @item_actions]
   }
 
   use Spark.Dsl.Extension,

@@ -72,85 +72,50 @@ defmodule AshBackpex.Adapter do
   use Backpex.Adapter, config_schema: @config_schema
 
   @moduledoc """
-    ```
-    use Backpex.LiveResource,
-      adapter: InsiWeb.BackpexAshAdapter,
-      adapter_config: [
-        resource: User,
-        schema: User,
-        repo: Insi.Repo,
-        create_action: :create_with_plaintext_pwd,
-        create_changeset: &InsiWeb.BackpexAshAdapter.create_changeset/3,
-        update_changeset: &InsiWeb.BackpexAshAdapter.update_changeset/3,
-        load: &InsiWeb.BackpexAshAdapter.load/3
-      ],
-      layout: {InsiWeb.Layouts, :admin}
-    ```
-
-    You can specify a default create_action or update_action, which must refer to an action on the resource.
-
-    You must specify the create_changeset, update_changeset, and load functions because for some reason Backpex is not respecting the provided default Nimble values.
-    Override them in your resource if necessary.
-
-
     The `Backpex.Adapter` to connect your `Backpex.LiveResource` to an `Ash.Resource`.
+
+    Typically, you should not need to reference this Adapter directly. Sensible defaults will be provided when using AshBackpex.LiveResource
+  ```elixir
+  defmodule MyAppWeb.Live.PostLive do
+    use AshBackpex.Live
+
+    backpex do
+      resource MyApp.Blog.Post
+      load [:author, :comments]
+      fields do
+        field :title, Backpex.Fields.Text
+        field :author, Backpex.Fields.BelongsTo
+        field :comments, Backpex.Fields.HasMany, only: [:show]
+      end
+      singular_label "Post"
+      plural_label "Posts"
+    end
+  end
+  ```
 
     ## `adapter_config`
 
     #{NimbleOptions.docs(@config_schema)}
-
-    > ### Work in progress {: .error}
-    >
-    > The `Backpex.Adapters.Ash` is currently not usable! It can barely list and show items. We will work on this as we continue to implement  the `Backpex.Adapter` pattern throughout the codebase.
-
   """
 
   require Ash.Query
 
   def load(_, _, _), do: []
 
-  def create_changeset(item, _params, assigns) do
-    # dbg({assigns})
+  def create_changeset(item, params, assigns) do
     live_resource = Keyword.get(assigns, :assigns).live_resource
-    config = live_resource.config(:adapter_config)
 
-    create_action =
-      case Keyword.get(config, :create_action) do
-        nil ->
-          primary_action =
-            item.__struct__
-            |> Ash.Resource.Info.actions()
-            |> Enum.find(&(&1.type == :create && &1.primary?))
+    create_action = live_resource |> primary_action(:create)
 
-          primary_action.name
-
-        action ->
-          action
-      end
-
-    Ash.Changeset.for_create(item.__struct__, create_action, %{},
+    Ash.Changeset.for_create(item.__struct__, create_action, params,
       actor: Keyword.get(assigns, :assigns).current_user
     )
   end
 
   def update_changeset(item, params, assigns) do
-    # dbg({assigns})
     live_resource = Keyword.get(assigns, :assigns).live_resource
-    config = live_resource.config(:adapter_config)
 
-    update_action =
-      case Keyword.get(config, :update_action) do
-        nil ->
-          primary_action =
-            item.__struct__
-            |> Ash.Resource.Info.actions()
-            |> Enum.find(&(&1.type == :update && &1.primary?))
-
-          primary_action.name
-
-        action ->
-          action
-      end
+    update_action = live_resource |> primary_action(:update)
 
     Ash.Changeset.for_update(item, update_action, params,
       actor: Keyword.get(assigns, :assigns).current_user
@@ -183,9 +148,8 @@ defmodule AshBackpex.Adapter do
   Returns a list of items by given criteria.
   """
   @impl Backpex.Adapter
+  @spec list(keyword(), map(), module()) :: {:ok, list(map())} | {:error, term()}
   def list(criteria, assigns, live_resource) do
-    # {criteria, assigns, live_resource} |> dbg
-    criteria |> dbg
     config = live_resource.config(:adapter_config)
     load_fn = Keyword.get(config, :load)
 
@@ -195,42 +159,16 @@ defmodule AshBackpex.Adapter do
         _ -> []
       end
 
-    query = config[:resource] |> Ash.Query.new()
+    %{size: page_size, page: page_num} = Keyword.get(criteria, :pagination, %{size: 15, page: 1})
 
     query =
-      case Keyword.get(criteria, :filters) do
-        nil ->
-          query
+      config[:resource]
+      |> Ash.Query.new()
+      |> apply_filters(Keyword.get(criteria, :filters))
+      |> Ash.Query.page(limit: page_size, offset: (page_num - 1) * page_size)
 
-        filters ->
-          filters
-          |> Enum.reduce(query, fn filter, acc ->
-            filter |> dbg
-
-            cond do
-              filter.field == :empty_filter |> dbg ->
-                acc
-
-              is_list(filter.value) ->
-                acc |> Ash.Query.filter(^Ash.Expr.ref(filter[:field]) in ^filter[:value])
-
-              true ->
-                acc |> Ash.Query.filter(^Ash.Expr.ref(filter[:field]) == ^filter[:value])
-            end
-          end)
-      end
-
-    %{size: page_size, page: page_num} = Keyword.get(criteria, :pagination)
-
-    query =
-      query
-      |> Ash.Query.page(
-        limit: page_size,
-        offset: (page_num - 1) * page_size
-      )
-
-    with {:ok, results} = query |> Ash.read(load: load, actor: assigns.current_user) do
-      {:ok, results.results}
+    with {:ok, %{results: results}} <- query |> Ash.read(load: load, actor: assigns.current_user) do
+      {:ok, results}
     end
   end
 
@@ -238,10 +176,12 @@ defmodule AshBackpex.Adapter do
   Returns the number of items matching the given criteria.
   """
   @impl Backpex.Adapter
-  def count(_criteria, assigns, live_resource) do
+  def count(criteria, assigns, live_resource) do
     config = live_resource.config(:adapter_config)
 
     config[:resource]
+    |> Ash.Query.new()
+    |> apply_filters(Keyword.get(criteria, :filters))
     |> Ash.count(actor: assigns.current_user)
   end
 
@@ -254,12 +194,15 @@ defmodule AshBackpex.Adapter do
     primary_key = live_resource.config(:primary_key)
 
     ids = Enum.map(items, &Map.fetch!(&1, primary_key))
-    dbg({items, live_resource})
 
     result =
       config[:resource]
       |> Ash.Query.filter(^Ash.Expr.ref(primary_key) in ^ids)
-      |> Ash.bulk_destroy(:destroy, %{}, return_records?: true, authorize?: false)
+      |> Ash.bulk_destroy(:destroy, %{},
+        strategy: :stream,
+        return_records?: true,
+        authorize?: false
+      )
 
     {:ok, result.records}
   end
@@ -268,23 +211,30 @@ defmodule AshBackpex.Adapter do
   Inserts given item.
   """
   @impl Backpex.Adapter
-  def insert(changeset, live_resource) do
-    # config = live_resource.config(:adapter_config)
-    dbg({changeset, live_resource})
-    # raise "hahaha"
-    changeset |> Ash.create(authorize?: false)
-
-    # item
-    # |> config[:repo].insert()
+  def insert(changeset, _live_resource) do
+    if changeset.valid? do
+      case changeset |> Ash.create(authorize?: false) do
+        {:ok, item} -> {:ok, item}
+        {:error, error} -> {:error, changeset |> Ash.Changeset.add_error(error)}
+      end
+    else
+      {:error, changeset}
+    end
   end
 
   @doc """
   Updates given item.
   """
   @impl Backpex.Adapter
-  def update(changeset, live_resource) do
-    {changeset, live_resource} |> dbg
-    changeset |> Ash.update(authorize?: false)
+  def update(changeset, _live_resource) do
+    if changeset.valid? do
+      case changeset |> Ash.update(authorize?: false) do
+        {:ok, item} -> {:ok, item}
+        {:error, error} -> {:error, changeset |> Ash.Changeset.add_error(error)}
+      end
+    else
+      {:error, changeset}
+    end
   end
 
   @doc """
@@ -303,22 +253,65 @@ defmodule AshBackpex.Adapter do
     source = assigns.form.source
     action = source.action
 
-    cond do
-      is_struct(source, Ecto.Changeset) ->
-        # 处理 Ecto.Changeset
-        case source.action do
-          nil -> source  # 返回原始 changeset
-          _ -> Ecto.Changeset.change(source, attrs)
-        end
+    case assigns.form.source do
+      %{action_type: :create} ->
+        Ash.Changeset.for_create(item.__struct__, action, attrs)
 
-      true ->
-        # 其他情况的默认处理
-        case assigns.form.type do
-          :create ->
-            Ash.Changeset.for_create(item.__struct__, action, attrs)
-          :update ->
-            Ash.Changeset.for_update(item, action, attrs)
-        end
+      %{type: :create} ->
+        Ash.Changeset.for_create(item.__struct__, action, attrs)
+
+      %{action_type: :update} ->
+        Ash.Changeset.for_update(item, action, attrs)
+
+      %{type: :update} ->
+        Ash.Changeset.for_update(item, action, attrs)
+    end
+  end
+
+  defp apply_filters(query, nil), do: query
+
+  defp apply_filters(query, filters) do
+    Enum.reduce(filters, query, fn filter, query ->
+      case filter do
+        {k, v} ->
+          Ash.Query.filter(query, ^Ash.Expr.ref(k) == ^v)
+
+        %{field: :empty_filter} ->
+          query
+
+        %{field: f, value: v} when is_list(v) ->
+          Ash.Query.filter(query, ^Ash.Expr.ref(f) in ^v)
+
+        %{field: f, value: v} ->
+          Ash.Query.filter(query, ^Ash.Expr.ref(f) == ^v)
+
+        filter ->
+          if Ash.Expr.expr?(filter), do: Ash.Query.filter(query, ^filter), else: query
+      end
+    end)
+  end
+
+  defp primary_action(live_resource, action_type) do
+    config = live_resource.config(:adapter_config)
+    resource = live_resource.config(:resource)
+
+    config_val =
+      case action_type do
+        :create -> :create_action
+        :update -> :update_action
+      end
+
+    case Keyword.get(config, config_val) do
+      nil ->
+        primary_action =
+          resource
+          |> Ash.Resource.Info.actions()
+          |> Enum.find(&(&1.type == action_type && &1.primary?))
+
+        primary_action.name
+
+      action ->
+        action
     end
   end
 end

@@ -2,6 +2,36 @@
 
 <!-- changelog -->
 
+## [v0.0.7]
+
+### Updates
+
+Just use main Backpex Hex repo. Still learning about Hex!
+
+## [v0.0.6]
+
+### Updates
+
+Improve support for Ash `{:array, type}` parameters including MultiSelect
+
+Ensure errors display correctly
+
+Use up-to-date fork of main Backpex repo with AshBackpex-specific fixes (temporary!)
+
+## [v0.0.5]
+
+### Updates
+
+Update to Backpex 0.14.0
+
+## [v0.0.4]
+
+### Improvements
+
+Add `demo` app
+
+Add `credo`, `ex_check`, `dialyxir`, `sobelow`, with various code-quality refactors.
+
 ## [v0.0.3]
 
 ### Improvements
