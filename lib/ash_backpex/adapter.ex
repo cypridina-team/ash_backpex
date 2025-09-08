@@ -99,6 +99,7 @@ defmodule AshBackpex.Adapter do
   """
 
   require Ash.Query
+  import Ash.Expr
 
   def load(_, _, _), do: []
 
@@ -165,6 +166,8 @@ defmodule AshBackpex.Adapter do
       config[:resource]
       |> Ash.Query.new()
       |> apply_filters(Keyword.get(criteria, :filters))
+      |> apply_search(Keyword.get(criteria, :search))
+      |> apply_order(Keyword.get(criteria, :order))
       |> Ash.Query.page(limit: page_size, offset: (page_num - 1) * page_size)
 
     with {:ok, %{results: results}} <- query |> Ash.read(load: load, actor: assigns.current_user) do
@@ -182,6 +185,7 @@ defmodule AshBackpex.Adapter do
     config[:resource]
     |> Ash.Query.new()
     |> apply_filters(Keyword.get(criteria, :filters))
+    |> apply_search(Keyword.get(criteria, :search))
     |> Ash.count(actor: assigns.current_user)
   end
 
@@ -296,6 +300,79 @@ defmodule AshBackpex.Adapter do
           if Ash.Expr.expr?(filter), do: Ash.Query.filter(query, ^filter), else: query
       end
     end)
+  end
+
+  defp apply_search(query, nil), do: query
+  defp apply_search(query, {"", _}), do: query
+  defp apply_search(query, {_search, []}), do: query
+
+  defp apply_search(query, {search, searchable_fields}) when is_binary(search) do
+    # Build OR chain across searchable fields using Ash.Expr directly (no quoted/eval).
+    # For numeric attributes, try equality when search is an integer; for string-ish use contains.
+    resource = query.resource
+    attr_by_name =
+      resource
+      |> Ash.Resource.Info.public_attributes()
+      |> Map.new(&{&1.name, &1})
+
+    fields =
+      searchable_fields
+      |> Enum.map(fn
+        {name, field_options} -> {Map.get(field_options, :display_field, name), field_options}
+        name when is_atom(name) -> {name, %{}}
+      end)
+      |> Enum.uniq()
+
+    case fields do
+      [] -> query
+      _ ->
+        {is_int?, int_val} =
+          case Integer.parse(search) do
+            {i, ""} -> {true, i}
+            _ -> {false, nil}
+          end
+
+        expr_acc =
+          Enum.reduce(fields, nil, fn {name, field_opts}, acc ->
+            attr = Map.get(attr_by_name, name)
+            module = Map.get(field_opts, :module)
+
+            is_number_module = module in [Backpex.Fields.Number]
+            is_text_module = module in [Backpex.Fields.Text, Backpex.Fields.Select]
+
+            current =
+              cond do
+                # Numeric field: only match when search is an integer
+                (is_number_module or (attr && attr.type in [:integer, :big_integer])) and is_int? ->
+                  expr(^Ash.Expr.ref(name) == ^int_val)
+
+                # String-like: allow contains
+                is_text_module or (attr && attr.type in [:string, :ci_string, :uuid]) ->
+                  expr(contains(^Ash.Expr.ref(name), ^search))
+
+                true ->
+                  nil
+              end
+
+            cond do
+              is_nil(current) -> acc
+              is_nil(acc) -> current
+              true -> expr(^acc or ^current)
+            end
+          end)
+
+        if is_nil(expr_acc), do: query, else: Ash.Query.filter(query, ^expr_acc)
+    end
+  end
+
+  defp apply_order(query, nil), do: query
+
+  defp apply_order(query, %{by: by, direction: dir}) when is_atom(by) do
+    case dir do
+      :asc -> Ash.Query.sort(query, [{by, :asc}])
+      :desc -> Ash.Query.sort(query, [{by, :desc}])
+      _ -> Ash.Query.sort(query, by)
+    end
   end
 
   defp primary_action(live_resource, action_type) do

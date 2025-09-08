@@ -264,6 +264,8 @@ defmodule AshBackpex.LiveResource.Transformers.GenerateBackpex do
                       except: field.except,
                       default: field.default,
                       options: field.options || field.attribute |> maybe_derive_options.(module),
+                      searchable: field.searchable,
+                      orderable: field.orderable,
                       display_field: field.display_field,
                       live_resource: field.live_resource,
                       panel: field.panel,
