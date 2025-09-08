@@ -68,28 +68,107 @@ defmodule AshBackpex.LiveResource.Transformers.GenerateBackpex do
             end
 
           case type do
-            Ash.Type.Boolean -> Backpex.Fields.Boolean
-            Ash.Type.String -> Backpex.Fields.Text
-            Ash.Type.Atom -> Backpex.Fields.Text
-            Ash.Type.CiString -> Backpex.Fields.Text
-            Ash.Type.Time -> Backpex.Fields.Time
-            Ash.Type.Date -> Backpex.Fields.Date
-            Ash.Type.UtcDatetime -> Backpex.Fields.DateTime
-            Ash.Type.UtcDatetimeUsec -> Backpex.Fields.DateTime
-            Ash.Type.DateTime -> Backpex.Fields.DateTime
-            Ash.Type.NaiveDateTime -> Backpex.Fields.DateTime
-            Ash.Type.Integer -> Backpex.Fields.Number
-            Ash.Type.Float -> Backpex.Fields.Number
-            :belongs_to -> Backpex.Fields.BelongsTo
-            :has_many -> Backpex.Fields.HasMany
-            :count -> Backpex.Fields.Number
-            :exists -> Backpex.Fields.Boolean
-            :sum -> Backpex.Fields.Number
-            :max -> Backpex.Fields.Number
-            :min -> Backpex.Fields.Number
-            :avg -> Backpex.Fields.Number
-            {:array, Ash.Type.Atom} -> Backpex.Fields.InlineCRUD
+            Ash.Type.Boolean ->
+              Backpex.Fields.Boolean
+
+            Ash.Type.String ->
+              attribute_name |> select_or.(Backpex.Fields.Text)
+
+            Ash.Type.Atom ->
+              attribute_name |> select_or.(Backpex.Fields.Text)
+
+            Ash.Type.CiString ->
+              attribute_name |> select_or.(Backpex.Fields.Text)
+
+            Ash.Type.Time ->
+              Backpex.Fields.Time
+
+            Ash.Type.Date ->
+              Backpex.Fields.Date
+
+            Ash.Type.UtcDatetime ->
+              Backpex.Fields.DateTime
+
+            Ash.Type.UtcDatetimeUsec ->
+              Backpex.Fields.DateTime
+
+            Ash.Type.DateTime ->
+              Backpex.Fields.DateTime
+
+            Ash.Type.NaiveDateTime ->
+              Backpex.Fields.DateTime
+
+            Ash.Type.Integer ->
+              attribute_name |> select_or.(Backpex.Fields.Number)
+
+            Ash.Type.Float ->
+              attribute_name |> select_or.(Backpex.Fields.Number)
+
+            :belongs_to ->
+              Backpex.Fields.BelongsTo
+
+            :has_many ->
+              Backpex.Fields.HasMany
+
+            :count ->
+              Backpex.Fields.Number
+
+            :exists ->
+              Backpex.Fields.Boolean
+
+            :sum ->
+              Backpex.Fields.Number
+
+            :max ->
+              Backpex.Fields.Number
+
+            :min ->
+              Backpex.Fields.Number
+
+            :avg ->
+              Backpex.Fields.Number
+
+            {:array, Ash.Type.Atom} ->
+              attribute_name |> multiselect_or.(Backpex.Fields.Text)
+
+            {:array, Ash.Type.String} ->
+              attribute_name |> multiselect_or.(Backpex.Fields.Text)
+
+            {:array, Ash.Type.CiString} ->
+              attribute_name |> multiselect_or.(Backpex.Fields.Text)
+
+            {:array, Ash.Type.Integer} ->
+              attribute_name |> multiselect_or.(Backpex.Fields.Number)
+
+            {:array, Ash.Type.Float} ->
+              attribute_name |> multiselect_or.(Backpex.Fields.Number)
+
             _ -> Backpex.Fields.Text
+          end
+        end
+
+        maybe_derive_options = fn attribute_name, module ->
+          case module do
+            Backpex.Fields.Select ->
+              case attribute_name |> get_one_of_constraint.() do
+                constraints when is_list(constraints) ->
+                  constraints
+                  |> Enum.map(fn val ->
+                    {atom_to_title_case.(val), val}
+                  end)
+
+                _ ->
+                  []
+              end
+
+            Backpex.Fields.MultiSelect ->
+              case attribute_name |> get_one_of_constraint.() do
+                [_ | _] -> &__MODULE__.maybe_default_options/1
+                _ -> []
+              end
+
+            _ ->
+              nil
           end
         end
 
@@ -169,11 +248,22 @@ defmodule AshBackpex.LiveResource.Transformers.GenerateBackpex do
                                       :strip_default
                                     ) || []
 
+        @resource_actions Spark.Dsl.Extension.get_entities(__MODULE__, [:backpex, :resource_actions])
+                  |> Enum.reduce([], fn action, acc ->
+                    Keyword.put(
+                      acc,
+                      action.name,
+                      %{
+                        module: action.module
+                      }
+                    )
+                  end)
+
         @resource_action_strip_defaults Spark.Dsl.Extension.get_opt(
-                                         __MODULE__,
-                                         [:backpex, :resource_actions],
-                                         :strip_default
-                                       ) || []
+                                  __MODULE__,
+                                  [:backpex, :resource_actions],
+                                  :strip_default
+                                ) || []
 
         use Backpex.LiveResource,
           adapter: AshBackpex.Adapter,
