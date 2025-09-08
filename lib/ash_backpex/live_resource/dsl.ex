@@ -431,7 +431,7 @@ defmodule AshBackpex.LiveResource.Dsl do
         required: false
       ]
     ],
-    sections: [@fields, @filters, @item_actions]
+    sections: [@fields, @filters, @item_actions, @resource_actions]
   }
 
   use Spark.Dsl.Extension,

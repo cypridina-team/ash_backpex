@@ -173,6 +173,9 @@ defmodule AshBackpex.LiveResource.Transformers.GenerateBackpex do
             Ash.Type.Integer ->
               attribute_name |> select_or.(Backpex.Fields.Number)
 
+            Ash.Type.Decimal ->
+              attribute_name |> select_or.(Backpex.Fields.Number)
+
             Ash.Type.Float ->
               attribute_name |> select_or.(Backpex.Fields.Number)
 
@@ -201,6 +204,7 @@ defmodule AshBackpex.LiveResource.Transformers.GenerateBackpex do
               Backpex.Fields.Number
 
             {:array, Ash.Type.Atom} ->
+
               attribute_name |> multiselect_or.(Backpex.Fields.Text)
 
             {:array, Ash.Type.String} ->
@@ -214,6 +218,9 @@ defmodule AshBackpex.LiveResource.Transformers.GenerateBackpex do
 
             {:array, Ash.Type.Float} ->
               attribute_name |> multiselect_or.(Backpex.Fields.Number)
+
+            _ ->
+              Backpex.Fields.Text
           end
         end
 
@@ -297,17 +304,6 @@ defmodule AshBackpex.LiveResource.Transformers.GenerateBackpex do
                         )
                       end)
 
-        @resource_actions Spark.Dsl.Extension.get_entities(__MODULE__, [:backpex, :resource_actions])
-                         |> Enum.reduce([], fn action, acc ->
-                           Keyword.put(
-                             acc,
-                             action.name,
-                             %{
-                               module: action.module
-                             }
-                           )
-                         end)
-
         @item_action_strip_defaults Spark.Dsl.Extension.get_opt(
                                       __MODULE__,
                                       [:backpex, :item_actions],
@@ -324,12 +320,6 @@ defmodule AshBackpex.LiveResource.Transformers.GenerateBackpex do
                       }
                     )
                   end)
-
-        @resource_action_strip_defaults Spark.Dsl.Extension.get_opt(
-                                  __MODULE__,
-                                  [:backpex, :resource_actions],
-                                  :strip_default
-                                ) || []
 
         use Backpex.LiveResource,
             [
@@ -424,6 +414,14 @@ defmodule AshBackpex.LiveResource.Transformers.GenerateBackpex do
             end
 
           Ash.can?({item, action}, Map.get(assigns, :current_user))
+        end
+
+        # default allow
+        def can?(assigns, action, item) do
+          case Map.get(assigns, :current_user) do
+            nil -> false
+            _user -> true
+          end
         end
 
         def maybe_default_options(assigns) do
