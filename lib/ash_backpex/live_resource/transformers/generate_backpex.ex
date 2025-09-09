@@ -374,10 +374,17 @@ defmodule AshBackpex.LiveResource.Transformers.GenerateBackpex do
         def item_actions(defaults) do
           defaults = Keyword.drop(defaults, @item_action_strip_defaults)
 
-          @item_actions
-          |> Enum.reduce(defaults, fn {k, v}, acc ->
-            Keyword.put(acc, k, v)
-          end)
+          merged =
+            @item_actions
+            |> Enum.reduce(defaults, fn {k, v}, acc ->
+              Keyword.put(acc, k, v)
+            end)
+
+          if function_exported?(__MODULE__, :custom_item_actions, 1) do
+            apply(__MODULE__, :custom_item_actions, [merged])
+          else
+            merged
+          end
         end
 
         @impl Backpex.LiveResource
